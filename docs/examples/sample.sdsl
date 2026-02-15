@@ -1,0 +1,153 @@
+---
+presentation:
+  title: "Q3 2025 Data Platform Update"
+  author: "Nitin"
+  company: "Create Music Group"
+  template: "./templates/cmg_brand.pptx"
+  output: "pptx"
+  brand:
+    primary: "1E2761"
+    secondary: "CADCFC"
+    accent: "F96167"
+    header_font: "Arial Black"
+    body_font: "Calibri"
+    logo: "./assets/cmg_logo.png"
+---
+
+# Title Slide
+@type: title
+@background: dark
+
+## Q3 2025 Data Platform Update
+### Create Music Group — Data & AI Organization
+
+@notes: Welcome everyone. Today we'll walk through our Q3 progress
+on the data platform buildout and preview what's ahead for Q4.
+
+---
+
+# Section: Platform Health
+@type: section_divider
+@background: gradient
+
+## Platform Health & Metrics
+
+---
+
+# Medallion Architecture Progress
+@type: stat_callout
+
+@stat: 94% | Pipeline Uptime | Up from 87% in Q2
+@stat: 3.2B | Events Processed Daily | Pub/Sub → BigQuery
+@stat: 12 | Data Products Live | 8 new this quarter
+
+@notes: These numbers reflect the stability improvements we shipped
+in the first 6 weeks. The uptime jump is directly attributable to
+the dead-letter queue implementation on Pub/Sub.
+
+---
+
+# Contract Hardening Strategy
+@type: two_column
+
+@col:
+  ## Streaming (Pub/Sub)
+  - Proto schema enforcement at topic level
+  - Dead-letter queues for schema violations
+  - Automated schema evolution checks in CI
+  - Real-time validation dashboards
+
+@col:
+  ## Table-Based (BigQuery)
+  - dbt contracts on all gold-layer models
+  - Column-level lineage via dbt metadata
+  - Automated freshness + volume anomaly alerts
+  - Schema change approval workflow
+
+@notes: The key insight is that streaming and batch need different
+contract strategies. Pub/Sub gets proto-first enforcement, BigQuery
+gets dbt-native contracts. One size doesn't fit all.
+
+---
+
+# Section: Team & Organization
+@type: section_divider
+
+## Team & Organization
+
+---
+
+# Team Build-Out Timeline
+@type: timeline
+
+@step: Jan 2025 | Joined CMG | Data & AI org kickoff, assessment phase
+@step: Feb 2025 | Infra Foundations | GCP project structure, IAM, networking
+@step: Mar 2025 | First Hires | Sr. Security Engineer, Data Engineering leads
+@step: Q2 2025 | Platform v1 | Medallion bronze→silver pipelines live
+@step: Q3 2025 | Scale Phase | Gold layer, self-serve analytics, ML foundations
+
+@notes: We've gone from zero to a functioning data platform in 9 months.
+The hiring pipeline is strong — BCG X alumni network has been valuable.
+
+---
+
+# Key Risks & Mitigations
+@type: comparison
+
+@compare:
+  header: Risk | Mitigation | Status
+  row: Schema drift in legacy Label Engine | Proto-first migration plan with incremental rollout | 🟡 In Progress
+  row: Talent acquisition timeline | Active pipeline via BCG X alumni + specialized recruiters | 🟢 On Track
+  row: Label Engine tech debt blocking CreateOS | Strangler fig pattern — incremental migration | 🔴 Needs Attention
+  row: SOC2 readiness for CreateOS launch | Dedicated security engineer hired, audit prep started | 🟡 In Progress
+
+@notes: The Label Engine tech debt is our biggest blocker. The strangler
+fig approach lets us migrate incrementally without a big-bang cutover,
+but it requires careful coordination with the platform team.
+
+---
+
+# Section: Roadmap
+@type: section_divider
+@background: gradient
+
+## Q4 Roadmap & Priorities
+
+---
+
+# Q4 Priorities
+@type: bullet_points
+@layout: icon_rows
+
+- @icon: rocket    | Agentic slide generation MVP — this tool we're building
+- @icon: shield    | SOC2 Type II preparation for CreateOS platform
+- @icon: database  | Real-time royalty pipeline v2 with sub-minute latency
+- @icon: brain     | ML-based content ID model improvements (accuracy +15%)
+- @icon: chart     | Self-serve analytics portal for label partners
+
+@notes: These five priorities are ranked by business impact. The royalty
+pipeline v2 is the highest-revenue item. The agentic slide gen is a
+force multiplier for the whole org.
+
+---
+
+# Investment Ask
+@type: stat_callout
+@background: dark
+
+@stat: 3 | Additional Engineers | 2 data, 1 ML
+@stat: $240K | Annual Tooling Budget | GCP + vendor licenses
+@stat: Q1 2026 | Full Platform Maturity | Self-serve + ML in production
+
+@notes: This investment gets us to a fully self-serve data platform
+by Q1 2026. The ROI model shows breakeven within 6 months of the
+analytics portal launch.
+
+---
+
+# Thank You
+@type: closing
+@background: dark
+
+## Questions & Discussion
+### nitin@createmusicgroup.com
