@@ -293,9 +293,7 @@ class TestIndexCuratorEnrichDeck:
 
     def test_enrich_slide_invalid_domain_falls_back(self):
         response = (
-            '{"semantic_summary": "test", '
-            '"topic_tags": [], '
-            '"content_domain": "invalid_domain"}'
+            '{"semantic_summary": "test", "topic_tags": [], "content_domain": "invalid_domain"}'
         )
         curator = self._get_curator_with_mock(response)
 
@@ -346,8 +344,7 @@ class TestIndexCuratorEnrichDeck:
 
     def test_enrich_element(self):
         response = (
-            '{"semantic_summary": "Pipeline uptime at 94%", '
-            '"topic_tags": ["pipeline", "uptime"]}'
+            '{"semantic_summary": "Pipeline uptime at 94%", "topic_tags": ["pipeline", "uptime"]}'
         )
         curator = self._get_curator_with_mock(response)
 
