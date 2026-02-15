@@ -1,225 +1,175 @@
-# SlideDSL — Architecture Diagram
+# SlideDSL -- Architecture
 
-## End-to-End Pipeline
-
-```
-                         ┌─────────────────────────────────────────────┐
-                         │            PHASE 5: ORCHESTRATOR            │
-                         │         src/services/orchestrator.py        │
-                         │                                             │
-  "Q3 data platform      │  ┌───────┐   ┌────────┐   ┌───────────┐   │
-   update for leadership" │  │ Route │──▶│ Enrich │──▶│ Assemble  │   │
-  ───────────────────────▶│  │ input │   │ w/index│   │ pipeline  │   │
-                         │  └───────┘   └────────┘   └─────┬─────┘   │
-                         │                                  │         │
-                         └──────────────────────────────────┼─────────┘
-                                                            │
-                    ┌───────────────────────────────────────┼──────────────────┐
-                    │                                       │                  │
-                    ▼                                       ▼                  ▼
-  ┌──────────────────────────┐   ┌──────────────────────────────┐   ┌─────────────────┐
-  │   PHASE 4: AGENTS        │   │   PHASE 2: DESIGN INDEX      │   │  PHASE 3:       │
-  │                          │   │                               │   │  RENDERER       │
-  │  agents/nl_to_dsl.py     │   │  src/index/                   │   │                 │
-  │  ┌────────────────────┐  │   │  ┌───────────┐               │   │  src/renderer/  │
-  │  │  NL-to-DSL Agent   │◀─┼───┼──│ retriever │  SearchResult │   │  ┌───────────┐  │
-  │  │  (Claude)          │  │   │  │  .py      │──────────────▶│   │  │ pptx_     │  │
-  │  │                    │  │   │  └───────────┘               │   │  │ renderer  │  │
-  │  │  Prompt + retrieved│  │   │       ▲                      │   │  │ .py       │  │
-  │  │  examples → DSL    │  │   │       │ query                │   │  └─────┬─────┘  │
-  │  └────────┬───────────┘  │   │  ┌────┴──────┐              │   │        │        │
-  │           │ .sdsl text   │   │  │  store.py │              │   │        ▼        │
-  │           ▼              │   │  │  SQLite + │              │   │  ┌───────────┐  │
-  │  agents/qa_agent.py      │   │  │  FTS5 +   │              │   │  │ format_   │  │
-  │  ┌────────────────────┐  │   │  │  vectors  │              │   │  │ plugins   │  │
-  │  │  QA Agent          │  │   │  └────┬──────┘              │   │  │ .py       │  │
-  │  │  (visual inspect)  │  │   │       ▲                      │   │  └─────┬─────┘  │
-  │  └────────────────────┘  │   │       │ chunks               │   │        │        │
-  │                          │   │  ┌────┴──────┐              │   │        ▼        │
-  │  agents/index_curator.py │   │  │ chunker   │              │   │   .pptx / .ee4p │
-  │  ┌────────────────────┐  │   │  │ .py       │              │   │                 │
-  │  │  Index Curator     │──┼──▶│  └───────────┘              │   └─────────────────┘
-  │  │  (enrich chunks)   │  │   │                               │
-  │  └────────────────────┘  │   └───────────────────────────────┘
-  └──────────────────────────┘
-              │
-              │ DSL text
-              ▼
-  ┌──────────────────────────┐
-  │   PHASE 1: CORE DSL      │
-  │                          │
-  │  src/dsl/                │
-  │  ┌────────┐ ┌──────────┐│
-  │  │models  │ │ parser   ││
-  │  │.py     │ │ .py      ││
-  │  │        │ │          ││
-  │  │Pydantic│ │ .sdsl ──▶││──▶ PresentationNode
-  │  │schemas │ │ text  ──▶││      ├── PresentationMeta
-  │  └────────┘ └──────────┘│      │     ├── title, author, company
-  │  ┌──────────┐           │      │     └── BrandConfig
-  │  │serializer│           │      └── SlideNode[]
-  │  │.py       │           │           ├── slide_type, background
-  │  │          │           │           ├── heading, subheading
-  │  │ Node ──▶ │──▶ .sdsl  │           ├── bullets[], stats[]
-  │  │ text     │           │           ├── columns[], timeline[]
-  │  └──────────┘           │           ├── compare, speaker_notes
-  │                          │           └── image
-  └──────────────────────────┘
-```
-
-## Data Flow
+## Phase Dependency Graph
 
 ```
-  ┌──────────────────────────────────────────────────────────────────────────────┐
-  │                           GENERATION FLOW (→)                               │
-  │                                                                             │
-  │  User NL ──▶ Agent ──▶ DSL text ──▶ Parser ──▶ Node ──▶ Renderer ──▶ .pptx │
-  │                │                       │                                    │
-  │                │                       │ validate                           │
-  │                │                       ▼                                    │
-  │                │               PresentationNode                             │
-  │                │                       │                                    │
-  │                │          ┌────────────┘                                    │
-  │                │          ▼                                                 │
-  │                │       Chunker ──▶ DeckChunk                                │
-  │                │          │        SlideChunk[]                              │
-  │                │          │        ElementChunk[]                            │
-  │                │          ▼                                                 │
-  │                │        Store ──▶ SQLite                                    │
-  │                │          │                                                 │
-  │                │          ▼                                                 │
-  │                │      Retriever ◀── future queries                          │
-  │                │                                                            │
-  └────────────────┴────────────────────────────────────────────────────────────┘
-
-                    ┌─────────────────────────────────────────────────────────────────┐
-                    │                      FEEDBACK FLOW (←)                          │
-                    │                                                                 │
-                    │  User keeps slide  ──▶ feedback.py ──▶ keep_count++ on chunk    │
-                    │  User edits slide  ──▶ feedback.py ──▶ edit_count++ + re-ingest │
-                    │  User regens slide ──▶ feedback.py ──▶ regen_count++ (demote)   │
-                    │                                                                 │
-                    │  Quality score = keep / (keep + regen)                          │
-                    │  Higher score = design surfaces more often in retrieval          │
-                    └─────────────────────────────────────────────────────────────────┘
+  PHASE 1                 PHASE 2                PHASE 3
+  Core DSL                Design Index            Renderer
+  ────────                ────────────            ────────
+  models.py ─────────────▶ chunker.py             pptx_renderer.py
+  parser.py ─────────────▶ chunker.py             pptx_renderer.py
+  serializer.py ─────────▶ chunker.py             format_plugins.py
+       │                      │                        │
+       │  PresentationNode    │  DeckChunk             │  .pptx
+       │  SlideNode           │  SlideChunk[]           │
+       │                      │  ElementChunk[]         │
+       │                      ▼                        │
+       │                  store.py                     │
+       │                      │                        │
+       │                      ▼                        │
+       │                  retriever.py                 │
+       │                      │                        │
+       │                      │ SearchResult            │
+       ▼                      ▼                        ▼
+  ┌─────────────────────────────────────────────────────────┐
+  │                     PHASE 4: AGENTS                      │
+  │                                                          │
+  │  nl_to_dsl.py                                            │
+  │    reads: retriever (Phase 2) for example slides         │
+  │    writes: DSL text validated by parser (Phase 1)        │
+  │                                                          │
+  │  qa_agent.py                                             │
+  │    reads: rendered .pptx (Phase 3)                       │
+  │    writes: pass/fail + revision DSL (Phase 1)            │
+  │                                                          │
+  │  index_curator.py                                        │
+  │    reads: raw chunks from chunker (Phase 2)              │
+  │    writes: semantic summaries back to store (Phase 2)    │
+  └──────────────────────────┬───────────────────────────────┘
+                             │
+                             ▼
+  ┌──────────────────────────────────────────────────────────┐
+  │                  PHASE 5: ORCHESTRATION                   │
+  │                                                          │
+  │  orchestrator.py                                         │
+  │    calls: retriever (P2) -> nl_to_dsl (P4) ->            │
+  │           parser (P1) -> renderer (P3) -> qa_agent (P4)  │
+  │                                                          │
+  │  feedback.py                                             │
+  │    reads: user signals (keep / edit / regen)             │
+  │    writes: back to store (Phase 2) to close the loop     │
+  │                                                          │
+  │  skills/                                                 │
+  │    thin wrappers over all src/ modules                   │
+  └──────────────────────────────────────────────────────────┘
 ```
 
-## Phase Build Map
-
-### Phase 1: Core DSL — The Spine
-
-Everything speaks this language. The DSL is the single contract
-between all components.
+## How Phases Connect at Runtime
 
 ```
-  Files created:
-  ├── src/dsl/models.py        Pydantic data models (PresentationNode, SlideNode, enums)
-  ├── src/dsl/parser.py        .sdsl text → PresentationNode
-  ├── src/dsl/serializer.py    PresentationNode → .sdsl text
-  └── tests/test_parser.py     36 tests against sample.sdsl
-
-  Depends on: nothing (foundation layer)
-  Consumed by: every other phase
+  User: "Q3 data platform update for leadership"
+    │
+    │                         ┌──────────────────────────────────────────┐
+    │  STEP 1: Retrieve       │           PHASE 2                       │
+    ├────────────────────────▶│  retriever.py queries store.py          │
+    │                         │  returns: proven slide DSL examples      │
+    │                         └─────────────────┬────────────────────────┘
+    │                                           │
+    │                                           │ examples
+    │                                           ▼
+    │  STEP 2: Generate       ┌──────────────────────────────────────────┐
+    ├────────────────────────▶│           PHASE 4                       │
+    │                         │  nl_to_dsl.py sends prompt + examples   │
+    │                         │  to Claude, receives .sdsl text          │
+    │                         └─────────────────┬────────────────────────┘
+    │                                           │
+    │                                           │ .sdsl text
+    │                                           ▼
+    │  STEP 3: Validate       ┌──────────────────────────────────────────┐
+    ├────────────────────────▶│           PHASE 1                       │
+    │                         │  parser.py validates DSL syntax          │
+    │                         │  returns: PresentationNode               │
+    │                         └─────────────────┬────────────────────────┘
+    │                                           │
+    │                                           │ PresentationNode
+    │                                           ▼
+    │  STEP 4: Render         ┌──────────────────────────────────────────┐
+    ├────────────────────────▶│           PHASE 3                       │
+    │                         │  pptx_renderer.py maps SlideNodes to     │
+    │                         │  python-pptx shapes, outputs .pptx       │
+    │                         └─────────────────┬────────────────────────┘
+    │                                           │
+    │                                           │ .pptx file
+    │                                           ▼
+    │  STEP 5: QA             ┌──────────────────────────────────────────┐
+    ├────────────────────────▶│           PHASE 4                       │
+    │                         │  qa_agent.py inspects rendered output    │
+    │                         │  pass → deliver, fail → revise DSL      │
+    │                         └─────────────────┬────────────────────────┘
+    │                                           │
+    │                                           │ delivered .pptx
+    │                                           ▼
+    │  STEP 6: Learn          ┌──────────────────────────────────────────┐
+    └────────────────────────▶│           PHASE 5                       │
+                              │  feedback.py records user signal         │
+                              │  keep → boost in index (Phase 2)        │
+                              │  edit → re-ingest edited version (P2)   │
+                              │  regen → demote in index (Phase 2)      │
+                              └──────────────────────────────────────────┘
 ```
 
-### Phase 2: Design Index — The Brain
-
-Stores every slide ever produced or ingested. Learns which
-designs work over time via feedback signals.
+## Phase Dependency Summary
 
 ```
-  Files created:
-  ├── src/index/chunker.py     PresentationNode → DeckChunk + SlideChunk[] + ElementChunk[]
-  ├── src/index/store.py       SQLite + FTS5 + vector BLOB storage
-  ├── src/index/retriever.py   Hybrid search (semantic + structural + keyword)
-  ├── scripts/ingest_deck.py   Ingest .sdsl files into the index
-  ├── scripts/seed_index.py    Batch-ingest a directory of decks
-  ├── tests/test_chunker.py    30 tests
-  └── tests/test_index.py      34 tests (store CRUD, FTS, embeddings, retriever)
-
-  Depends on: Phase 1 (parser, serializer, models)
-  Consumed by: Phase 4 (agents query the retriever), Phase 5 (feedback loop)
+  Phase 1 ◀── foundation, no dependencies
+    │
+    ├──▶ Phase 2 uses parser + serializer + models
+    │       │
+    ├──▶ Phase 3 uses models (SlideNode, BrandConfig)
+    │       │
+    │       ▼
+    │    Phase 4 uses Phase 1 (parser validates output)
+    │              uses Phase 2 (retriever provides examples)
+    │              uses Phase 3 (qa_agent inspects rendered output)
+    │       │
+    │       ▼
+    └──▶ Phase 5 calls all phases in sequence
+                  and feeds signals back into Phase 2
 ```
 
-### Phase 3: Renderer — The Hands
+What each phase gives to the others:
 
-Turns validated PresentationNode into actual slide files.
+| Producer | Consumer | What flows between them |
+|----------|----------|------------------------|
+| Phase 1 | Phase 2 | `PresentationNode` for chunking, `serializer` for DSL text in chunks |
+| Phase 1 | Phase 3 | `SlideNode`, `BrandConfig` drive rendering decisions |
+| Phase 1 | Phase 4 | `parser` validates agent-generated DSL |
+| Phase 2 | Phase 4 | `SearchResult` with proven DSL examples for few-shot prompts |
+| Phase 2 | Phase 5 | `store` receives feedback signals from `feedback.py` |
+| Phase 3 | Phase 4 | rendered `.pptx` for `qa_agent` visual inspection |
+| Phase 4 | Phase 5 | DSL text output consumed by orchestrator pipeline |
+| Phase 5 | Phase 2 | feedback loop: keep/edit/regen signals update chunk quality scores |
 
-```
-  Files created:
-  ├── src/renderer/pptx_renderer.py    SlideNode → python-pptx shapes
-  ├── src/renderer/format_plugins.py   Plugin system for .ee4p, .pdf output
-  └── tests/test_renderer.py
-
-  Depends on: Phase 1 (reads SlideNode models)
-  Consumed by: Phase 5 (orchestrator calls renderer after agent generates DSL)
-```
-
-### Phase 4: Agents — The Mouth
-
-LLM-powered translation between human intent and structured DSL.
+## Three-Level Chunking (Phase 2 Detail)
 
 ```
-  Files created:
-  ├── agents/prompts/nl_to_dsl.txt     System prompt for NL→DSL agent
-  ├── agents/nl_to_dsl.py              NL → DSL translation (Claude)
-  ├── agents/qa_agent.py               Visual QA inspection loop
-  └── agents/index_curator.py          Background semantic enrichment
-
-  Depends on: Phase 1 (generates DSL text), Phase 2 (retrieves examples from index)
-  Consumed by: Phase 5 (orchestrator invokes agents)
-```
-
-### Phase 5: Orchestration — The Nervous System
-
-Wires everything together. Closes the feedback loop.
-
-```
-  Files created:
-  ├── src/services/orchestrator.py     End-to-end pipeline controller
-  ├── src/services/feedback.py         User signals → index updates
-  └── skills/                          Thin wrappers composing src modules
-
-  Depends on: all previous phases
-  Consumed by: end users (CLI, API)
-```
-
-## Three-Level Chunking Detail
-
-```
-  ┌─────────────────────────────────────────────────────────────────┐
-  │  DECK CHUNK (1 per presentation)                                │
-  │                                                                 │
-  │  title, author, company, slide_count                            │
-  │  slide_type_sequence: [title, section, stat, two_col, ...]      │
-  │  narrative_summary (LLM), audience, purpose                     │
-  │  brand_colors, template_used                                    │
-  │  embedding → searchable by arc, audience, topic                 │
-  │                                                                 │
-  │  ┌───────────────────────────────────────────────────────────┐  │
-  │  │  SLIDE CHUNK (1 per slide)                                │  │
-  │  │                                                           │  │
-  │  │  slide_name, slide_type, layout, background               │  │
-  │  │  structural fingerprint:                                  │  │
-  │  │    has_stats(3), has_bullets(0), has_columns(0), ...      │  │
-  │  │  neighborhood: prev=section_divider, next=two_column      │  │
-  │  │  deck_position: middle, section: "Platform Health"        │  │
-  │  │  quality signals: keep=5, edit=1, regen=0 → score=0.83   │  │
-  │  │  dsl_text (full DSL for this slide)                       │  │
-  │  │  embedding → searchable by content, layout, shape         │  │
-  │  │                                                           │  │
-  │  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐        │  │
-  │  │  │  ELEMENT     │ │  ELEMENT     │ │  ELEMENT     │        │  │
-  │  │  │  stat        │ │  stat        │ │  stat        │        │  │
-  │  │  │  "94%"       │ │  "3.2B"      │ │  "12"        │        │  │
-  │  │  │  "Pipeline   │ │  "Events/    │ │  "Data       │        │  │
-  │  │  │   Uptime"    │ │   Day"       │ │   Products"  │        │  │
-  │  │  │  sibling: 3  │ │  sibling: 3  │ │  sibling: 3  │        │  │
-  │  │  │  embedding → │ │  embedding → │ │  embedding → │        │  │
-  │  │  │  searchable  │ │  searchable  │ │  searchable  │        │  │
-  │  │  └─────────────┘ └─────────────┘ └─────────────┘        │  │
-  │  └───────────────────────────────────────────────────────────┘  │
-  └─────────────────────────────────────────────────────────────────┘
+  ┌──────────────────────────────────────────────────────────────┐
+  │  DECK CHUNK (1 per presentation)                              │
+  │                                                               │
+  │  title, author, company, slide_count                          │
+  │  slide_type_sequence: [title, section, stat, two_col, ...]    │
+  │  narrative_summary (LLM), audience, purpose                   │
+  │  embedding -- searchable by arc, audience, topic              │
+  │                                                               │
+  │  ┌────────────────────────────────────────────────────────┐   │
+  │  │  SLIDE CHUNK (1 per slide)                             │   │
+  │  │                                                        │   │
+  │  │  slide_name, slide_type, layout, background            │   │
+  │  │  structural: has_stats(3), has_columns(2), ...         │   │
+  │  │  neighborhood: prev=section_divider, next=two_column   │   │
+  │  │  quality: keep=5, edit=1, regen=0 -- score=0.83        │   │
+  │  │  dsl_text (full DSL for this slide)                    │   │
+  │  │  embedding -- searchable by content, layout, shape     │   │
+  │  │                                                        │   │
+  │  │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐   │   │
+  │  │  │ ELEMENT      │ │ ELEMENT      │ │ ELEMENT      │   │   │
+  │  │  │ stat "94%"   │ │ stat "3.2B"  │ │ stat "12"    │   │   │
+  │  │  │ "Pipeline    │ │ "Events/Day" │ │ "Data        │   │   │
+  │  │  │  Uptime"     │ │              │ │  Products"   │   │   │
+  │  │  │ sibling: 3   │ │ sibling: 3   │ │ sibling: 3   │   │   │
+  │  │  └──────────────┘ └──────────────┘ └──────────────┘   │   │
+  │  └────────────────────────────────────────────────────────┘   │
+  └──────────────────────────────────────────────────────────────┘
 ```
 
 ## File Tree by Phase
@@ -229,36 +179,36 @@ slidedsl/
 │
 ├── PHASE 1 ─────────────────────────────────────
 │   src/dsl/
-│   ├── models.py              ◀ data models
-│   ├── parser.py              ◀ .sdsl → PresentationNode
-│   └── serializer.py          ◀ PresentationNode → .sdsl
+│   ├── models.py              data models (PresentationNode, SlideNode)
+│   ├── parser.py              .sdsl text --> PresentationNode
+│   └── serializer.py          PresentationNode --> .sdsl text
 │   tests/
-│   └── test_parser.py         ◀ 36 tests
+│   └── test_parser.py         36 tests
 │
 ├── PHASE 2 ─────────────────────────────────────
 │   src/index/
-│   ├── chunker.py             ◀ 3-level chunking
-│   ├── store.py               ◀ SQLite + FTS5 + vectors
-│   └── retriever.py           ◀ hybrid search
+│   ├── chunker.py             3-level chunking
+│   ├── store.py               SQLite + FTS5 + vector BLOBs
+│   └── retriever.py           hybrid search
 │   scripts/
-│   ├── ingest_deck.py         ◀ single deck ingestion
-│   └── seed_index.py          ◀ batch ingestion
+│   ├── ingest_deck.py         single deck ingestion
+│   └── seed_index.py          batch ingestion
 │   tests/
-│   ├── test_chunker.py        ◀ 30 tests
-│   └── test_index.py          ◀ 34 tests
+│   ├── test_chunker.py        30 tests
+│   └── test_index.py          34 tests
 │
 ├── PHASE 3 ─────────────────────────────────────
 │   src/renderer/
-│   ├── pptx_renderer.py       ◀ python-pptx output
-│   └── format_plugins.py      ◀ .ee4p / .pdf converters
+│   ├── pptx_renderer.py       SlideNode --> python-pptx shapes
+│   └── format_plugins.py      .pptx --> .ee4p / .pdf converters
 │   tests/
 │   └── test_renderer.py
 │
 ├── PHASE 4 ─────────────────────────────────────
 │   agents/
-│   ├── nl_to_dsl.py           ◀ NL → DSL agent
-│   ├── qa_agent.py            ◀ visual QA loop
-│   ├── index_curator.py       ◀ semantic enrichment
+│   ├── nl_to_dsl.py           NL --> DSL agent (Claude)
+│   ├── qa_agent.py            visual QA loop
+│   ├── index_curator.py       semantic enrichment
 │   └── prompts/
 │       ├── nl_to_dsl.txt
 │       ├── qa_inspection.txt
@@ -266,20 +216,20 @@ slidedsl/
 │
 ├── PHASE 5 ─────────────────────────────────────
 │   src/services/
-│   ├── orchestrator.py        ◀ end-to-end pipeline
-│   └── feedback.py            ◀ learning loop
+│   ├── orchestrator.py        end-to-end pipeline
+│   └── feedback.py            learning loop
 │   skills/
-│   ├── dsl_parse.py
-│   ├── dsl_serialize.py
-│   ├── chunk_slide.py
-│   ├── embed.py
-│   ├── index_search.py
-│   ├── render_pptx.py
-│   ├── template_analyze.py
-│   └── format_convert.py
+│   ├── dsl_parse.py           wraps parser
+│   ├── dsl_serialize.py       wraps serializer
+│   ├── chunk_slide.py         wraps chunker
+│   ├── embed.py               embedding text generation
+│   ├── index_search.py        wraps retriever + store
+│   ├── render_pptx.py         wraps pptx_renderer
+│   ├── template_analyze.py    .pptx template introspection
+│   └── format_convert.py      wraps format_plugins
 │
 └── SHARED ──────────────────────────────────────
-    docs/examples/sample.sdsl  ◀ test fixture (read-only)
-    specs/*.md                 ◀ specifications (read-only)
-    templates/                 ◀ company .pptx templates
+    docs/examples/sample.sdsl  test fixture (read-only)
+    specs/*.md                 specifications (read-only)
+    templates/                 company .pptx templates
 ```
