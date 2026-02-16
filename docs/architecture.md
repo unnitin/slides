@@ -2,220 +2,136 @@
 
 ## Phase Dependency Graph
 
-```
-  PHASE 1                 PHASE 2                PHASE 3
-  Core DSL                Design Index            Renderer
-  ────────                ────────────            ────────
-  models.py ─────────────▶ chunker.py             pptx_renderer.py
-  parser.py ─────────────▶ chunker.py             pptx_renderer.py
-  serializer.py ─────────▶ chunker.py             format_plugins.py
-       │                      │                        │
-       │  PresentationNode    │  DeckChunk             │  .pptx
-       │  SlideNode           │  SlideChunk[]           │
-       │                      │  ElementChunk[]         │
-       │                      ▼                        │
-       │                  store.py                     │
-       │                      │                        │
-       │                      ▼                        │
-       │                  retriever.py                 │
-       │                      │                        │
-       │                      │ SearchResult            │
-       ▼                      ▼                        ▼
-  ┌─────────────────────────────────────────────────────────┐
-  │                     PHASE 4: AGENTS                      │
-  │                                                          │
-  │  nl_to_dsl.py                                            │
-  │    reads: retriever (Phase 2) for example slides         │
-  │    writes: DSL text validated by parser (Phase 1)        │
-  │                                                          │
-  │  qa_agent.py                                             │
-  │    reads: rendered .pptx (Phase 3)                       │
-  │    writes: pass/fail + QAReport with issues              │
-  │    loop: inspect → fix DSL → re-render (max 3 cycles)   │
-  │                                                          │
-  │  index_curator.py                                        │
-  │    reads: raw chunks from chunker (Phase 2)              │
-  │    writes: semantic summaries back to store (Phase 2)    │
-  │    batches: all slides in one API call (Haiku)           │
-  └──────────────────────────┬───────────────────────────────┘
-                             │
-                             ▼
-  ┌──────────────────────────────────────────────────────────┐
-  │                  PHASE 5: ORCHESTRATION                   │
-  │                                                          │
-  │  orchestrator.py                                         │
-  │    calls: retriever (P2) -> nl_to_dsl (P4) ->            │
-  │           parser (P1) -> renderer (P3) -> qa_agent (P4)  │
-  │                                                          │
-  │  feedback.py                                             │
-  │    reads: user signals (keep / edit / regen)             │
-  │    writes: back to store (Phase 2) to close the loop     │
-  │                                                          │
-  │  skills/                                                 │
-  │    thin wrappers over all src/ modules                   │
-  └──────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph P1["**Phase 1: Core DSL**"]
+        models["models.py"]
+        parser["parser.py"]
+        serializer["serializer.py"]
+    end
+
+    subgraph P2["**Phase 2: Design Index**"]
+        chunker["chunker.py"]
+        store["store.py"]
+        retriever["retriever.py"]
+    end
+
+    subgraph P3["**Phase 3: Renderer**"]
+        pptx_renderer["pptx_renderer.py"]
+        format_plugins["format_plugins.py"]
+    end
+
+    subgraph P4["**Phase 4: Agents**"]
+        direction TB
+        nl_to_dsl["nl_to_dsl.py<br/>reads: retriever for examples<br/>writes: DSL validated by parser"]
+        qa_agent["qa_agent.py<br/>reads: rendered .pptx<br/>writes: QAReport pass/fail<br/>loop: inspect→fix→re-render (max 3)"]
+        index_curator["index_curator.py<br/>reads: raw chunks from chunker<br/>writes: summaries back to store<br/>batches: one API call (Haiku)"]
+    end
+
+    subgraph P5["**Phase 5: Orchestration**"]
+        orchestrator["orchestrator.py<br/>retriever→nl_to_dsl→parser→renderer→qa_agent"]
+        feedback["feedback.py<br/>keep / edit / regen → store"]
+        skills["skills/<br/>thin wrappers over all src/ modules"]
+    end
+
+    models -->|"PresentationNode<br/>SlideNode"| chunker
+    parser -->|"PresentationNode"| chunker
+    serializer -->|"DSL text"| chunker
+    chunker -->|"DeckChunk<br/>SlideChunk[]<br/>ElementChunk[]"| store
+    store --> retriever
+    retriever -->|"SearchResult"| P4
+    pptx_renderer -->|".pptx"| P4
+    P4 --> P5
+    feedback --> store
 ```
 
 ## User Flow (End-to-End)
 
-```
-  User: "Q3 data platform update for leadership"
-    │
-    ▼
-  ┌──────────────────────────────────────────────────────────────┐
-  │  ORCHESTRATOR (src/services/orchestrator.py)                  │
-  │                                                               │
-  │  Step 1: RETRIEVE                                             │
-  │  ├─ Query design index at 3 granularities                     │
-  │  ├─ Deck search   → past quarterly deck structures            │
-  │  ├─ Slide search   → proven stat/timeline/comparison slides   │
-  │  └─ Element search → KPI presentations, chart patterns        │
-  │                                                               │
-  │  Step 2: GENERATE (agents/nl_to_dsl.py)                       │
-  │  ├─ Build prompt: user input + retrieved examples + brand     │
-  │  ├─ Call Claude Sonnet → raw .sdsl text                       │
-  │  ├─ Strip markdown fences                                     │
-  │  └─ Retry on parse failure (max 2 retries)                    │
-  │                                                               │
-  │  Step 3: VALIDATE (src/dsl/parser.py)                         │
-  │  ├─ Parse DSL text → PresentationNode                         │
-  │  └─ If invalid after retries → return partial result          │
-  │                                                               │
-  │  Step 4: RENDER (src/renderer/pptx_renderer.py)               │
-  │  ├─ Map each SlideNode to python-pptx shapes                  │
-  │  ├─ Apply brand colors, fonts, backgrounds                    │
-  │  ├─ Template-based rendering if template available             │
-  │  └─ Output: .pptx file                                        │
-  │                                                               │
-  │  Step 5: QA LOOP (agents/qa_agent.py)                         │
-  │  ├─ Convert .pptx → PDF → JPEG images (soffice + pdftoppm)   │
-  │  ├─ Send images + DSL to Claude Sonnet (vision)               │
-  │  ├─ Parse structured QA issues:                                │
-  │  │   ├─ CRITICAL: overlap, overflow, content_missing           │
-  │  │   ├─ WARNING:  alignment, contrast, spacing                 │
-  │  │   └─ MINOR:    design monotony, excess whitespace           │
-  │  ├─ If PASS → proceed to delivery                             │
-  │  └─ If FAIL → fix DSL → re-render → re-inspect (max 3x)      │
-  │                                                               │
-  │  Step 6: INGEST                                                │
-  │  ├─ Chunk the generated deck at 3 levels                       │
-  │  ├─ Store chunks in design index (SQLite + vectors)            │
-  │  └─ Record phrase triggers for future retrieval                │
-  │                                                               │
-  │  Step 7: DELIVER                                               │
-  │  └─ Return PipelineResult:                                     │
-  │      ├─ .pptx file path                                        │
-  │      ├─ .sdsl source text                                      │
-  │      ├─ confidence score, QA status                             │
-  │      └─ deck_chunk_id for feedback tracking                    │
-  └──────────────────────────────────────────────────────────────┘
-    │
-    ▼
-  User receives .pptx + reviews slides
-    │
-    ├─ Keep slide as-is    → feedback.record_keep(chunk_id)
-    │                         → boost quality score in index
-    │
-    ├─ Edit then keep      → feedback.record_edit(chunk_id, new_dsl)
-    │                         → demote original, ingest edited version
-    │
-    └─ Reject / regenerate → feedback.record_regen(chunk_id)
-                              → demote quality score in index
+```mermaid
+flowchart TD
+    user_input["👤 User: 'Q3 data platform update for leadership'"]
+
+    subgraph orch["**ORCHESTRATOR** (src/services/orchestrator.py)"]
+        direction TB
+        step1["**Step 1: RETRIEVE**<br/>Query design index at 3 granularities<br/>• Deck search → past quarterly structures<br/>• Slide search → proven stat/timeline slides<br/>• Element search → KPI presentations"]
+        step2["**Step 2: GENERATE** (nl_to_dsl.py)<br/>Build prompt: input + examples + brand<br/>Call Claude Sonnet → raw .sdsl<br/>Retry on parse failure (max 2)"]
+        step3["**Step 3: VALIDATE** (parser.py)<br/>Parse DSL → PresentationNode<br/>If invalid after retries → partial result"]
+        step4["**Step 4: RENDER** (pptx_renderer.py)<br/>Map SlideNodes to python-pptx shapes<br/>Apply brand colors, fonts, backgrounds<br/>Template-based if available → .pptx"]
+        step5["**Step 5: QA LOOP** (qa_agent.py)<br/>.pptx → PDF → JPEG (soffice + pdftoppm)<br/>Send images + DSL to Claude Sonnet (vision)<br/>CRITICAL: overlap, overflow, missing<br/>WARNING: alignment, contrast, spacing<br/>MINOR: monotony, excess whitespace"]
+        step6["**Step 6: INGEST**<br/>Chunk deck at 3 levels<br/>Store in design index (SQLite + vectors)<br/>Record phrase triggers"]
+        step7["**Step 7: DELIVER**<br/>Return PipelineResult:<br/>.pptx path, .sdsl source,<br/>confidence, QA status, deck_chunk_id"]
+
+        step1 --> step2 --> step3 --> step4 --> step5
+        step5 -->|PASS| step6 --> step7
+        step5 -->|FAIL max 3x| step2
+    end
+
+    user_input --> orch
+
+    step7 --> user_review["👤 User reviews slides"]
+
+    user_review -->|"Keep as-is"| keep["feedback.record_keep(chunk_id)<br/>✅ Boost quality score"]
+    user_review -->|"Edit then keep"| edit["feedback.record_edit(chunk_id, new_dsl)<br/>📝 Demote original, ingest edited"]
+    user_review -->|"Reject / regenerate"| regen["feedback.record_regen(chunk_id)<br/>⬇️ Demote quality score"]
 ```
 
 ## QA Loop Detail
 
-```
-  .pptx file
-    │
-    ▼
-  ┌─────────────────────────────────────────────────────┐
-  │  pptx_to_images()                                    │
-  │  ├─ soffice --headless --convert-to pdf              │
-  │  └─ pdftoppm -jpeg -r 150                            │
-  └──────────────────────┬──────────────────────────────┘
-                         │  slide-1.jpg, slide-2.jpg, ...
-                         ▼
-  ┌─────────────────────────────────────────────────────┐
-  │  QAAgent.inspect()                                   │
-  │  ├─ Build multi-modal message:                       │
-  │  │   ├─ DSL source for each slide                    │
-  │  │   └─ Base64-encoded image for each slide          │
-  │  ├─ Send to Claude Sonnet (vision)                   │
-  │  └─ Parse response → QAReport                        │
-  │      ├─ issues: [{slide_index, severity, category}]  │
-  │      ├─ passed: bool (no critical issues)            │
-  │      └─ summary: "PASS" or "FAIL: N critical"        │
-  └──────────────────────┬──────────────────────────────┘
-                         │
-              ┌──────────┴──────────┐
-              │                     │
-           PASS                   FAIL
-              │                     │
-              ▼                     ▼
-           Deliver           Build fix prompt
-                                    │
-                                    ▼
-                              NL-to-DSL Agent
-                              (with existing_dsl)
-                                    │
-                                    ▼
-                              Re-render .pptx
-                                    │
-                                    ▼
-                              Re-inspect (cycle++)
-                              (max 3 cycles)
+```mermaid
+flowchart TD
+    pptx[".pptx file"]
+    convert["**pptx_to_images()**<br/>soffice --headless --convert-to pdf<br/>pdftoppm -jpeg -r 150"]
+    images["slide-1.jpg, slide-2.jpg, ..."]
+    inspect["**QAAgent.inspect()**<br/>Build multi-modal message:<br/>• DSL source per slide<br/>• Base64-encoded image per slide<br/>Send to Claude Sonnet (vision)<br/>Parse → QAReport"]
+    report["QAReport<br/>• issues: [{slide_index, severity, category}]<br/>• passed: bool<br/>• summary: PASS or FAIL: N critical"]
+
+    pptx --> convert --> images --> inspect --> report
+
+    report -->|PASS| deliver["✅ Deliver"]
+    report -->|FAIL| fix["Build fix prompt"]
+    fix --> nl_to_dsl["NL-to-DSL Agent<br/>(with existing_dsl)"]
+    nl_to_dsl --> rerender["Re-render .pptx"]
+    rerender --> reinspect["Re-inspect (cycle++)<br/>max 3 cycles"]
+    reinspect --> inspect
 ```
 
 ## Index Curator Flow (Background)
 
-```
-  New deck ingested → chunker produces DeckChunk + SlideChunks + ElementChunks
-    │
-    ▼
-  ┌─────────────────────────────────────────────────────┐
-  │  IndexCuratorAgent (Claude Haiku)                    │
-  │                                                      │
-  │  enrich_deck(presentation)                           │
-  │  ├─ narrative_summary: "Q3 review of data platform   │
-  │  │   progress covering health metrics, contract       │
-  │  │   hardening, team growth, risks, and Q4 roadmap"   │
-  │  ├─ audience: "executive leadership"                  │
-  │  ├─ purpose: "quarterly update and investment ask"    │
-  │  └─ topic_tags: ["data platform", "quarterly review"] │
-  │                                                      │
-  │  enrich_slides_batch(slides, deck_context)           │
-  │  ├─ Sends all slides in ONE API call                  │
-  │  ├─ Returns JSON array of enrichments                 │
-  │  └─ Each: semantic_summary + topic_tags + domain      │
-  │                                                      │
-  │  enrich_elements_batch(elements, slide_context)      │
-  │  ├─ Sends all elements in ONE API call                │
-  │  └─ Each: semantic_summary + topic_tags               │
-  └──────────────────────┬──────────────────────────────┘
-                         │
-                         ▼
-                    store.py updates chunk metadata
-                    → enables richer semantic search
+```mermaid
+flowchart TD
+    ingest["New deck ingested<br/>chunker → DeckChunk + SlideChunks + ElementChunks"]
+
+    subgraph curator["**IndexCuratorAgent** (Claude Haiku)"]
+        direction TB
+        enrich_deck["**enrich_deck(presentation)**<br/>narrative_summary, audience,<br/>purpose, topic_tags"]
+        enrich_slides["**enrich_slides_batch(slides, deck_context)**<br/>All slides in ONE API call<br/>Returns JSON array of enrichments<br/>Each: semantic_summary + topic_tags + domain"]
+        enrich_elements["**enrich_elements_batch(elements, slide_context)**<br/>All elements in ONE API call<br/>Each: semantic_summary + topic_tags"]
+
+        enrich_deck --> enrich_slides --> enrich_elements
+    end
+
+    store["**store.py** updates chunk metadata<br/>→ enables richer semantic search"]
+
+    ingest --> curator --> store
 ```
 
 ## Phase Dependency Summary
 
-```
-  Phase 1 ◀── foundation, no dependencies
-    │
-    ├──▶ Phase 2 uses parser + serializer + models
-    │       │
-    ├──▶ Phase 3 uses models (SlideNode, BrandConfig)
-    │       │
-    │       ▼
-    │    Phase 4 uses Phase 1 (parser validates output)
-    │              uses Phase 2 (retriever provides examples)
-    │              uses Phase 3 (qa_agent inspects rendered output)
-    │       │
-    │       ▼
-    └──▶ Phase 5 calls all phases in sequence
-                  and feeds signals back into Phase 2
+```mermaid
+flowchart TD
+    P1["**Phase 1: Core DSL**<br/>_foundation, no dependencies_"]
+    P2["**Phase 2: Design Index**<br/>_uses parser + serializer + models_"]
+    P3["**Phase 3: Renderer**<br/>_uses models (SlideNode, BrandConfig)_"]
+    P4["**Phase 4: Agents**<br/>_uses P1 (parser validates output)_<br/>_uses P2 (retriever provides examples)_<br/>_uses P3 (qa_agent inspects renders)_"]
+    P5["**Phase 5: Orchestration**<br/>_calls all phases in sequence_"]
+
+    P1 --> P2
+    P1 --> P3
+    P1 --> P4
+    P2 --> P4
+    P3 --> P4
+    P4 --> P5
+    P5 -->|"feedback signals"| P2
 ```
 
 What each phase gives to the others:
@@ -243,34 +159,26 @@ Total per generation: ~4-7 API calls. Total per ingestion: ~1-2 API calls.
 
 ## Three-Level Chunking (Phase 2 Detail)
 
-```
-  ┌──────────────────────────────────────────────────────────────┐
-  │  DECK CHUNK (1 per presentation)                              │
-  │                                                               │
-  │  title, author, company, slide_count                          │
-  │  slide_type_sequence: [title, section, stat, two_col, ...]    │
-  │  narrative_summary (LLM), audience, purpose                   │
-  │  embedding -- searchable by arc, audience, topic              │
-  │                                                               │
-  │  ┌────────────────────────────────────────────────────────┐   │
-  │  │  SLIDE CHUNK (1 per slide)                             │   │
-  │  │                                                        │   │
-  │  │  slide_name, slide_type, layout, background            │   │
-  │  │  structural: has_stats(3), has_columns(2), ...         │   │
-  │  │  neighborhood: prev=section_divider, next=two_column   │   │
-  │  │  quality: keep=5, edit=1, regen=0 -- score=0.83        │   │
-  │  │  dsl_text (full DSL for this slide)                    │   │
-  │  │  embedding -- searchable by content, layout, shape     │   │
-  │  │                                                        │   │
-  │  │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐   │   │
-  │  │  │ ELEMENT      │ │ ELEMENT      │ │ ELEMENT      │   │   │
-  │  │  │ stat "94%"   │ │ stat "3.2B"  │ │ stat "12"    │   │   │
-  │  │  │ "Pipeline    │ │ "Events/Day" │ │ "Data        │   │   │
-  │  │  │  Uptime"     │ │              │ │  Products"   │   │   │
-  │  │  │ sibling: 3   │ │ sibling: 3   │ │ sibling: 3   │   │   │
-  │  │  └──────────────┘ └──────────────┘ └──────────────┘   │   │
-  │  └────────────────────────────────────────────────────────┘   │
-  └──────────────────────────────────────────────────────────────┘
+```mermaid
+block-beta
+    columns 1
+
+    block:deck["DECK CHUNK (1 per presentation)"]
+        columns 1
+        deck_meta["title, author, company, slide_count<br/>slide_type_sequence: [title, section, stat, two_col, ...]<br/>narrative_summary (LLM), audience, purpose<br/>embedding — searchable by arc, audience, topic"]
+
+        block:slide["SLIDE CHUNK (1 per slide)"]
+            columns 1
+            slide_meta["slide_name, slide_type, layout, background<br/>structural: has_stats(3), has_columns(2), ...<br/>neighborhood: prev=section_divider, next=two_column<br/>quality: keep=5, edit=1, regen=0 — score=0.83<br/>dsl_text, embedding — searchable by content, layout, shape"]
+
+            block:elements
+                columns 3
+                e1["ELEMENT<br/>stat '94%'<br/>Pipeline Uptime<br/>sibling: 3"]
+                e2["ELEMENT<br/>stat '3.2B'<br/>Events/Day<br/>sibling: 3"]
+                e3["ELEMENT<br/>stat '12'<br/>Data Products<br/>sibling: 3"]
+            end
+        end
+    end
 ```
 
 ## File Tree by Phase

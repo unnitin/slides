@@ -1,46 +1,36 @@
 # SlideDSL — Agentic Slide Generation Platform
 
+[![CI](https://github.com/unnitin/slides/actions/workflows/ci.yml/badge.svg)](https://github.com/unnitin/slides/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/github/license/unnitin/slides)](https://github.com/unnitin/slides/blob/main/LICENSE)
+[![Code style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://docs.astral.sh/ruff/)
+
 ## What This Is
 
 A Python-based system that converts natural language → a domain-specific language (DSL) → rendered `.pptx` (or `.ee4p`) presentations, with a semantic design index that learns over time which slides, layouts, and visual treatments work best for your organization.
 
 ## Architecture
 
-```
-  Natural Language Input
-         │
-         ▼
-  ┌──────────────┐     ┌──────────────────────────────────────┐
-  │  NL-to-DSL   │◄───▶│         DESIGN INDEX                 │
-  │  Agent       │     │                                      │
-  │  (Claude)    │     │  ┌──────────┐ ┌──────┐ ┌─────────┐   │
-  └──────┬───────┘     │  │ Slide    │ │ Deck │ │ Element │   │
-         │             │  │ Chunks   │ │Chunks│ │ Chunks  │   │
-         ▼             │  └──────────┘ └──────┘ └─────────┘   │
-  ┌──────────────┐     │                                      │
-  │  SlideDSL    │     │  Vector DB + SQLite Metadata         │
-  │  (.sdsl file)│     └──────────────────────────────────────┘
-  │              │              │
-  └──────┬───────┘              │ retrieval at
-         │                      │ generation time
-         ▼                      ▼
-  ┌──────────────┐     ┌──────────────┐
-  │  DSL Parser  │────▶│ Layout       │
-  │              │     │ Mapper       │
-  └──────────────┘     └──────┬───────┘
-                              │
-                              ▼
-                       ┌──────────────┐     ┌──────────────┐
-                       │  PPTX        │────▶│  Format      │
-                       │  Renderer    │     │  Converter   │
-                       └──────────────┘     │  (.ee4p etc) │
-                              │             └──────────────┘
-                              ▼
-                       ┌──────────────┐
-                       │  QA Agent    │
-                       │  (visual     │
-                       │   inspection)│
-                       └──────────────┘
+```mermaid
+flowchart TD
+    nl["Natural Language Input"]
+    agent["NL-to-DSL Agent<br/>(Claude)"]
+    index["**DESIGN INDEX**<br/>Slide Chunks | Deck Chunks | Element Chunks<br/>Vector DB + SQLite Metadata"]
+    sdsl["SlideDSL<br/>(.sdsl file)"]
+    parser["DSL Parser"]
+    mapper["Layout Mapper"]
+    renderer["PPTX Renderer"]
+    converter["Format Converter<br/>(.ee4p etc)"]
+    qa["QA Agent<br/>(visual inspection)"]
+
+    nl --> agent
+    agent <-->|"retrieval at<br/>generation time"| index
+    agent --> sdsl
+    sdsl --> parser
+    parser --> mapper
+    mapper --> renderer
+    renderer --> converter
+    renderer --> qa
 ```
 
 ## Project Structure
