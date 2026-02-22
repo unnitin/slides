@@ -37,7 +37,7 @@ class PipelineConfig:
     index_db_path: str = "design_index.db"
 
     # Agent
-    model: str = "claude-sonnet-4-5-20250514"
+    model: str = "claude-sonnet-4-6"
     api_key: Optional[str] = None
 
     # Rendering
