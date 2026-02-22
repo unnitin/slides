@@ -19,6 +19,7 @@ from src.dsl.models import BrandConfig, PresentationNode
 from src.dsl.parser import SlideForgeParser
 from src.dsl.serializer import SlideForgeSerializer
 from src.index.chunker import SlideChunker
+from src.index.embeddings import EmbedFn, embed_chunks, make_embed_fn
 from src.index.retriever import DesignIndexRetriever
 from src.index.store import DesignIndexStore
 from src.renderer.pptx_renderer import render
@@ -54,6 +55,9 @@ class PipelineConfig:
     # QA
     enable_qa: bool = True
     max_qa_cycles: int = 3
+
+    # Embeddings
+    embedding_backend: str = "auto"  # "auto" | "sentence_transformers" | "hash"
 
 
 @dataclass
@@ -93,7 +97,8 @@ class Orchestrator:
         self.config = config
         self.store = DesignIndexStore(config.index_db_path)
         self.store.initialize()
-        self.retriever = DesignIndexRetriever(self.store, embed_fn=None)
+        self.embed_fn: EmbedFn = make_embed_fn(backend=config.embedding_backend)
+        self.retriever = DesignIndexRetriever(self.store, embed_fn=self.embed_fn)
         self.agent = NLToDSLAgent(model=config.model, api_key=config.api_key)
         self.qa_agent = QAAgent(model=config.model, api_key=config.api_key)
         self.parser = SlideForgeParser()
@@ -217,6 +222,7 @@ class Orchestrator:
             deck_chunk, slide_chunks, element_chunks = self.chunker.chunk(
                 presentation, source_file=str(dsl_path)
             )
+            embed_chunks([deck_chunk] + slide_chunks + element_chunks, self.embed_fn)
             self.store.upsert_deck(deck_chunk)
             for sc in slide_chunks:
                 self.store.upsert_slide(sc)
@@ -335,6 +341,7 @@ class Orchestrator:
             deck_chunk, slide_chunks, element_chunks = self.chunker.chunk(
                 presentation, source_file=dsl_path
             )
+            embed_chunks([deck_chunk] + slide_chunks + element_chunks, self.embed_fn)
             self.store.upsert_deck(deck_chunk)
             for sc in slide_chunks:
                 self.store.upsert_slide(sc)
