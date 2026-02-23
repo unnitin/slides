@@ -71,7 +71,7 @@ def make_embed_fn(
     except ImportError:
         if backend == "sentence_transformers":
             raise RuntimeError(
-                "sentence-transformers is not installed. " "Run: pip install sentence-transformers"
+                "sentence-transformers is not installed. Run: pip install sentence-transformers"
             )
         logger.warning(
             "sentence-transformers not installed; using hash embeddings. "

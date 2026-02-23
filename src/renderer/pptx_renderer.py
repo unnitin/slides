@@ -24,6 +24,7 @@ from src.dsl.models import (
     BackgroundType,
     BrandConfig,
     BulletItem,
+    PresentationMeta,
     PresentationNode,
     SlideNode,
     SlideType,
@@ -202,6 +203,127 @@ def _add_bullet_list(
     return txBox
 
 
+# ── Visual Helper Functions ───────────────────────────────────────
+
+
+def _render_content_separator(slide, brand: BrandConfig):
+    """Render thin horizontal rule below slide title area.
+
+    Draws a 0.03" tall rectangle at TITLE_TOP + TITLE_HEIGHT + 0.05"
+    using the brand secondary color. Applied to all content slides.
+    """
+    sep = slide.shapes.add_shape(
+        1,  # MSO_SHAPE.RECTANGLE
+        Inches(TITLE_LEFT),
+        Inches(TITLE_TOP + TITLE_HEIGHT + 0.05),
+        Inches(TITLE_WIDTH),
+        Inches(0.03),
+    )
+    sep.fill.solid()
+    sep.fill.fore_color.rgb = resolve_color("secondary", brand)
+    sep.line.fill.background()
+
+
+def _render_stat_card_bg(
+    slide,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    brand: BrandConfig,
+    bg_type: BackgroundType,
+):
+    """Render a card background rectangle behind a stat column.
+
+    Light backgrounds get a soft grey card; dark/gradient backgrounds
+    get a slightly lighter variant of the primary color.
+    """
+    if bg_type in (BackgroundType.DARK, BackgroundType.GRADIENT):
+        card_color = RGBColor(0x2E, 0x3A, 0x80)
+    else:
+        card_color = RGBColor(0xF5, 0xF7, 0xFA)
+
+    card = slide.shapes.add_shape(
+        1,  # MSO_SHAPE.RECTANGLE
+        Inches(x),
+        Inches(y),
+        Inches(width),
+        Inches(height),
+    )
+    card.fill.solid()
+    card.fill.fore_color.rgb = card_color
+    card.line.fill.background()
+
+
+def _render_logo(
+    slide,
+    brand: BrandConfig,
+    x: float,
+    y: float,
+    width: float = 1.0,
+    height: float = 0.4,
+):
+    """Render the company logo on a slide.
+
+    Silently skips if brand.logo is None or the file is not found.
+    """
+    if not brand.logo:
+        return
+    try:
+        slide.shapes.add_picture(
+            brand.logo,
+            Inches(x),
+            Inches(y),
+            Inches(width),
+            Inches(height),
+        )
+    except Exception:
+        logger.debug("Logo file not found or invalid: %s", brand.logo)
+
+
+def _render_confidentiality_label(slide, meta: PresentationMeta, brand: BrandConfig):
+    """Render confidentiality label centered at the bottom of a slide.
+
+    Placed at SOURCE_TOP row, centered over full content width, at 8pt.
+    """
+    muted = _muted_color_for_bg(BackgroundType.LIGHT, brand)
+    _add_textbox(
+        slide,
+        MARGIN_LEFT,
+        SOURCE_TOP,
+        CONTENT_WIDTH,
+        SOURCE_HEIGHT,
+        meta.confidentiality,
+        font_size=8,
+        color=muted,
+        alignment=PP_ALIGN.CENTER,
+        font_name=brand.body_font,
+    )
+
+
+def _render_title_accent_band(slide, brand: BrandConfig, bg_type: BackgroundType):
+    """Render a full-width accent band at the bottom of the title slide.
+
+    Uses the accent color for dark/gradient backgrounds, brand primary
+    for light backgrounds — visually grounds the title slide.
+    """
+    if bg_type in (BackgroundType.DARK, BackgroundType.GRADIENT):
+        band_color = resolve_color("accent", brand)
+    else:
+        band_color = resolve_color("primary", brand)
+
+    band = slide.shapes.add_shape(
+        1,  # MSO_SHAPE.RECTANGLE
+        Inches(0),
+        Inches(6.6),
+        Inches(13.333),
+        Inches(0.9),
+    )
+    band.fill.solid()
+    band.fill.fore_color.rgb = band_color
+    band.line.fill.background()
+
+
 # ── Per-Type Renderers ────────────────────────────────────────────
 
 
@@ -238,6 +360,9 @@ def _render_title(slide, node: SlideNode, brand: BrandConfig):
             alignment=PP_ALIGN.CENTER,
             font_name=brand.body_font,
         )
+
+    _render_title_accent_band(slide, brand, node.background)
+    _render_logo(slide, brand, x=11.9, y=6.85)
 
 
 def _render_section_divider(slide, node: SlideNode, brand: BrandConfig):
@@ -294,6 +419,8 @@ def _render_stat_callout(slide, node: SlideNode, brand: BrandConfig):
             font_name=brand.header_font,
         )
 
+    _render_content_separator(slide, brand)
+
     if not node.stats:
         return
 
@@ -303,6 +430,11 @@ def _render_stat_callout(slide, node: SlideNode, brand: BrandConfig):
 
     for i, stat in enumerate(node.stats):
         x = MARGIN_LEFT + i * stat_width
+
+        # Card background (drawn first so it sits below textboxes)
+        _render_stat_card_bg(
+            slide, x + 0.1, stat_top - 0.2, stat_width - 0.2, 2.5, brand, node.background
+        )
 
         # Value
         _add_textbox(
@@ -368,6 +500,8 @@ def _render_bullet_points(slide, node: SlideNode, brand: BrandConfig):
             color=text_color,
             font_name=brand.header_font,
         )
+
+    _render_content_separator(slide, brand)
 
     if node.bullets:
         if node.layout == "icon_rows":
@@ -451,6 +585,8 @@ def _render_two_column(slide, node: SlideNode, brand: BrandConfig):
             font_name=brand.header_font,
         )
 
+    _render_content_separator(slide, brand)
+
     col_width = (CONTENT_WIDTH - COLUMN_GAP) / 2
 
     for i, col in enumerate(node.columns[:2]):
@@ -520,6 +656,8 @@ def _render_comparison(slide, node: SlideNode, brand: BrandConfig):
             color=text_color,
             font_name=brand.header_font,
         )
+
+    _render_content_separator(slide, brand)
 
     if not node.compare:
         return
@@ -594,6 +732,8 @@ def _render_timeline(slide, node: SlideNode, brand: BrandConfig):
             color=text_color,
             font_name=brand.header_font,
         )
+
+    _render_content_separator(slide, brand)
 
     if not node.timeline:
         return
@@ -840,6 +980,8 @@ def _render_closing(slide, node: SlideNode, brand: BrandConfig):
             font_name=brand.body_font,
         )
 
+    _render_logo(slide, brand, x=11.9, y=6.85)
+
 
 def _render_freeform(slide, node: SlideNode, brand: BrandConfig):
     """Render a freeform slide -- best effort based on available content."""
@@ -858,6 +1000,8 @@ def _render_freeform(slide, node: SlideNode, brand: BrandConfig):
             color=text_color,
             font_name=brand.header_font,
         )
+
+    _render_content_separator(slide, brand)
 
     if node.bullets:
         _add_bullet_list(
@@ -986,6 +1130,8 @@ def _render_exec_summary(slide, node: SlideNode, brand: BrandConfig):
             font_name=brand.header_font,
         )
 
+    _render_content_separator(slide, brand)
+
     # Executive summary bullets (key messages)
     if node.bullets:
         _add_bullet_list(
@@ -1019,6 +1165,8 @@ def _render_next_steps(slide, node: SlideNode, brand: BrandConfig):
             color=text_color,
             font_name=brand.header_font,
         )
+
+    _render_content_separator(slide, brand)
 
     if not node.next_steps:
         # Fall back to bullets if no @action directives
@@ -1150,6 +1298,10 @@ def render(
         _render_footnotes(slide, node, brand)
         _render_source_line(slide, node, brand)
         _render_page_number(slide, page_num, node, brand)
+
+        # Confidentiality label centered at bottom of every slide
+        if presentation.meta.confidentiality:
+            _render_confidentiality_label(slide, presentation.meta, brand)
 
         # Speaker notes
         if node.speaker_notes:

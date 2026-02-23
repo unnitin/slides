@@ -47,6 +47,11 @@ def main():
         help="Embedding backend (default: auto)",
     )
     ap.add_argument("--verbose", action="store_true", help="Enable debug logging")
+    ap.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Show extracted requirements and confirm before generating",
+    )
     args = ap.parse_args()
 
     logging.basicConfig(
@@ -68,6 +73,7 @@ def main():
         output_dir=args.output_dir,
         enable_qa=not args.no_qa,
         embedding_backend=args.embed_backend,
+        interactive=args.interactive,
     )
 
     print("\nSlideForge Pipeline")
@@ -78,6 +84,7 @@ def main():
     print(f"Index DB : {args.index_db}")
     print(f"QA       : {'disabled' if args.no_qa else 'enabled'}")
     print(f"Embeddings: {args.embed_backend}")
+    print(f"Interactive: {args.interactive}")
     print(f"{'─' * 50}\n")
 
     print("Initializing orchestrator...")
@@ -102,6 +109,14 @@ def main():
     print(f"Slides generated : {result.slide_count}")
     print(f"Confidence       : {result.generation_confidence:.2f}")
     print(f"QA passed        : {result.qa_passed}")
+    print(f"Req. coverage    : {result.requirements_coverage:.0%}")
+
+    if result.requirement_gaps:
+        print(f"Requirement gaps ({len(result.requirement_gaps)}):")
+        for gap in result.requirement_gaps[:5]:
+            print(f"  ! {gap}")
+        if len(result.requirement_gaps) > 5:
+            print(f"  ... and {len(result.requirement_gaps) - 5} more")
 
     if result.qa_issues:
         print(f"QA issues ({len(result.qa_issues)}):")
