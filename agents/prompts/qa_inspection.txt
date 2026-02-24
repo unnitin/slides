@@ -12,7 +12,11 @@ For each slide, you get:
 
 ### Layout Issues (Critical)
 - Overlapping elements (text through shapes, stacked elements)
-- Text overflow or cut off at edges / box boundaries
+- Text overflow or cut off at edges / box boundaries — LOOK CAREFULLY: if any
+  text appears to bleed outside its enclosing card/box, or if a large number
+  is visually covering the label/description below it, that is CRITICAL overflow
+- Stat callout cards: value text (large number/metric) must not overlap the label
+  or description below it; if the big number runs into the label text → CRITICAL overflow
 - Elements too close together (< 0.3" gaps)
 - Content pushed off-slide or into margins
 

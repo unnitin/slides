@@ -12,6 +12,7 @@ Two modes:
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -44,7 +45,7 @@ MARGIN_RIGHT = 0.7
 
 CONTENT_WIDTH = 13.333 - MARGIN_LEFT - MARGIN_RIGHT  # 11.933
 CONTENT_HEIGHT = 7.5 - MARGIN_TOP - MARGIN_BOTTOM  # 6.3
-CONTENT_TOP = MARGIN_TOP + 0.8  # 1.4
+CONTENT_TOP = MARGIN_TOP + 1.3  # 1.9 — below title (1.6) + separator + exhibit label
 
 # Source / footnote zone at bottom of slide
 SOURCE_FONT = 9
@@ -55,15 +56,18 @@ PAGE_NUM_WIDTH = 0.5
 TITLE_LEFT = MARGIN_LEFT
 TITLE_TOP = MARGIN_TOP
 TITLE_WIDTH = CONTENT_WIDTH
-TITLE_HEIGHT = 0.7
+TITLE_HEIGHT = 0.85  # fits a 2-line 20pt action title with minimal dead space below
+
+# Body content zone — starts after title + separator gap
+BODY_HEIGHT = 4.0  # available height before footnotes/source zone
 
 # Font sizes (points)
 FONT_TITLE = 36
 FONT_SUBTITLE = 20
-FONT_HEADING = 24
-FONT_BODY = 14
+FONT_HEADING = 20  # 20pt fits a 2-line action title in a 1.0" box with Arial Black
+FONT_BODY = 13  # reduced from 14 so exec-summary bullets have more room
 FONT_CAPTION = 11
-FONT_STAT_VALUE = 54
+FONT_STAT_VALUE = 44
 FONT_STAT_LABEL = 16
 FONT_STAT_DESC = 12
 
@@ -102,6 +106,99 @@ def _muted_color_for_bg(bg: BackgroundType, brand: BrandConfig) -> RGBColor:
     if bg in (BackgroundType.DARK, BackgroundType.GRADIENT):
         return RGBColor(0xCC, 0xCC, 0xCC)
     return RGBColor(0x66, 0x66, 0x66)
+
+
+# ── Markdown Run Renderer ─────────────────────────────────────────
+
+_MD_INLINE = re.compile(r"\*\*(.+?)\*\*|\*(.+?)\*", re.DOTALL)
+
+
+def _add_paragraph_runs(
+    paragraph,
+    text: str,
+    font_size: int,
+    bold: bool = False,
+    color: Optional[RGBColor] = None,
+    font_name: Optional[str] = None,
+) -> None:
+    """Set paragraph text, converting **bold** and *italic* markdown into runs.
+
+    Falls back to a direct paragraph.text assignment when no markdown is present
+    so that paragraph-level font properties (size, bold, color) still work for
+    the common case and tests that inspect paragraph.font continue to pass.
+    """
+    if "**" not in text and "*" not in text:
+        paragraph.text = text
+        paragraph.font.size = Pt(font_size)
+        paragraph.font.bold = bold
+        if color:
+            paragraph.font.color.rgb = color
+        if font_name:
+            paragraph.font.name = font_name
+        return
+
+    # Build (kind, chunk) segments
+    segments: list[tuple[str, str]] = []
+    last_end = 0
+    for m in _MD_INLINE.finditer(text):
+        if m.start() > last_end:
+            segments.append(("plain", text[last_end : m.start()]))
+        if m.group(1) is not None:
+            segments.append(("bold", m.group(1)))
+        else:
+            segments.append(("italic", m.group(2)))
+        last_end = m.end()
+    if last_end < len(text):
+        segments.append(("plain", text[last_end:]))
+
+    for kind, chunk in segments:
+        run = paragraph.add_run()
+        run.text = chunk
+        run.font.size = Pt(font_size)
+        if kind == "bold":
+            run.font.bold = True
+        elif kind == "italic":
+            run.font.italic = True
+            run.font.bold = bold
+        else:
+            run.font.bold = bold
+        if color:
+            run.font.color.rgb = color
+        if font_name:
+            run.font.name = font_name
+
+
+# ── Font Scaling ──────────────────────────────────────────────────
+
+
+def _stat_value_size(value: str) -> int:
+    """Return a font size for a stat value that avoids box overflow.
+
+    Stat values should be short (e.g. "$180M", "40%", "3x").  When the model
+    includes extra words (e.g. "3–5 Years"), scale down to prevent the text
+    from wrapping out of the value textbox and into the label below.
+    """
+    n = len(value)
+    if n > 8:
+        return max(FONT_STAT_VALUE - 12, 24)  # 32pt for long values
+    if n > 5:
+        return max(FONT_STAT_VALUE - 6, 24)  # 38pt for medium values
+    return FONT_STAT_VALUE  # 44pt for short values like "$2B"
+
+
+def _heading_size(text: str) -> int:
+    """Return a font size for a slide heading that avoids overflow.
+
+    Consulting action titles can be 60–120 chars.  At 20pt Arial Black on a
+    11.9" content width, each line holds roughly 70–75 chars.  We scale down
+    for long headings so they still fit inside TITLE_HEIGHT (1.0").
+    """
+    n = len(text)
+    if n > 110:
+        return max(FONT_HEADING - 4, 14)  # 16pt — fits ~3 lines
+    if n > 75:
+        return max(FONT_HEADING - 2, 14)  # 18pt — fits ~2 lines
+    return FONT_HEADING  # 20pt — fits ~1–2 lines comfortably
 
 
 # ── Background ────────────────────────────────────────────────────
@@ -150,14 +247,8 @@ def _add_textbox(
     tf.word_wrap = True
 
     p = tf.paragraphs[0]
-    p.text = text
-    p.font.size = Pt(font_size)
-    p.font.bold = bold
     p.alignment = alignment
-    if color:
-        p.font.color.rgb = color
-    if font_name:
-        p.font.name = font_name
+    _add_paragraph_runs(p, text, font_size, bold=bold, color=color, font_name=font_name)
     return txBox
 
 
@@ -188,17 +279,9 @@ def _add_bullet_list(
         else:
             p = tf.add_paragraph()
 
-        if bullet.icon:
-            p.text = f"{bullet.text}"
-        else:
-            p.text = bullet.text
-
-        p.font.size = Pt(font_size - (bullet.level * 2))
+        bullet_font_size = font_size - (bullet.level * 2)
         p.level = bullet.level
-        if color:
-            p.font.color.rgb = color
-        if font_name:
-            p.font.name = font_name
+        _add_paragraph_runs(p, bullet.text, bullet_font_size, color=color, font_name=font_name)
 
     return txBox
 
@@ -413,7 +496,7 @@ def _render_stat_callout(slide, node: SlideNode, brand: BrandConfig):
             TITLE_WIDTH,
             TITLE_HEIGHT,
             node.heading,
-            font_size=FONT_HEADING,
+            font_size=_heading_size(node.heading),
             bold=True,
             color=text_color,
             font_name=brand.header_font,
@@ -426,36 +509,37 @@ def _render_stat_callout(slide, node: SlideNode, brand: BrandConfig):
 
     stat_count = len(node.stats)
     stat_width = CONTENT_WIDTH / stat_count
-    stat_top = CONTENT_TOP + 0.5
+    stat_top = CONTENT_TOP + 0.4
 
     for i, stat in enumerate(node.stats):
         x = MARGIN_LEFT + i * stat_width
 
         # Card background (drawn first so it sits below textboxes)
+        # Height 3.0" gives room for value (1.4") + label (0.5") + desc (0.6") + padding
         _render_stat_card_bg(
-            slide, x + 0.1, stat_top - 0.2, stat_width - 0.2, 2.5, brand, node.background
+            slide, x + 0.1, stat_top - 0.3, stat_width - 0.2, 3.0, brand, node.background
         )
 
-        # Value
+        # Value — auto-scaled font prevents long values from overflowing 1.4" box
         _add_textbox(
             slide,
             x,
             stat_top,
             stat_width,
-            1.0,
+            1.4,
             stat.value,
-            font_size=FONT_STAT_VALUE,
+            font_size=_stat_value_size(stat.value),
             bold=True,
             color=accent,
             alignment=PP_ALIGN.CENTER,
             font_name=brand.header_font,
         )
 
-        # Label
+        # Label — positioned below value box (stat_top + 1.4 + 0.2 gap)
         _add_textbox(
             slide,
             x,
-            stat_top + 1.2,
+            stat_top + 1.6,
             stat_width,
             0.5,
             stat.label,
@@ -466,14 +550,14 @@ def _render_stat_callout(slide, node: SlideNode, brand: BrandConfig):
             font_name=brand.body_font,
         )
 
-        # Description
+        # Description — below label
         if stat.description:
             _add_textbox(
                 slide,
                 x,
-                stat_top + 1.8,
+                stat_top + 2.2,
                 stat_width,
-                0.5,
+                0.6,
                 stat.description,
                 font_size=FONT_STAT_DESC,
                 color=muted,
@@ -495,7 +579,7 @@ def _render_bullet_points(slide, node: SlideNode, brand: BrandConfig):
             TITLE_WIDTH,
             TITLE_HEIGHT,
             node.heading,
-            font_size=FONT_HEADING,
+            font_size=_heading_size(node.heading),
             bold=True,
             color=text_color,
             font_name=brand.header_font,
@@ -512,7 +596,7 @@ def _render_bullet_points(slide, node: SlideNode, brand: BrandConfig):
                 MARGIN_LEFT,
                 CONTENT_TOP,
                 CONTENT_WIDTH,
-                4.5,
+                BODY_HEIGHT,
                 node.bullets,
                 font_size=FONT_BODY,
                 color=text_color,
@@ -579,7 +663,7 @@ def _render_two_column(slide, node: SlideNode, brand: BrandConfig):
             TITLE_WIDTH,
             TITLE_HEIGHT,
             node.heading,
-            font_size=FONT_HEADING,
+            font_size=_heading_size(node.heading),
             bold=True,
             color=text_color,
             font_name=brand.header_font,
@@ -616,7 +700,7 @@ def _render_two_column(slide, node: SlideNode, brand: BrandConfig):
                 x,
                 y,
                 col_width,
-                4.0,
+                BODY_HEIGHT,
                 col.bullets,
                 font_size=FONT_BODY,
                 color=text_color,
@@ -651,7 +735,7 @@ def _render_comparison(slide, node: SlideNode, brand: BrandConfig):
             TITLE_WIDTH,
             TITLE_HEIGHT,
             node.heading,
-            font_size=FONT_HEADING,
+            font_size=_heading_size(node.heading),
             bold=True,
             color=text_color,
             font_name=brand.header_font,
@@ -670,7 +754,9 @@ def _render_comparison(slide, node: SlideNode, brand: BrandConfig):
 
     row_count = len(rows) + (1 if headers else 0)
     table_top = CONTENT_TOP + 0.2
-    table_height = min(row_count * 0.6, 4.5)
+    # Cap at 4.0" so table bottom (table_top + 4.0 = 2.1 + 4.0 = 6.1") stays
+    # above the footnote zone which starts at SOURCE_TOP - 0.35 ≈ 6.15"
+    table_height = min(row_count * 0.6, 4.0)
 
     table_shape = slide.shapes.add_table(
         row_count,
@@ -727,7 +813,7 @@ def _render_timeline(slide, node: SlideNode, brand: BrandConfig):
             TITLE_WIDTH,
             TITLE_HEIGHT,
             node.heading,
-            font_size=FONT_HEADING,
+            font_size=_heading_size(node.heading),
             bold=True,
             color=text_color,
             font_name=brand.header_font,
@@ -836,7 +922,7 @@ def _render_image_text(slide, node: SlideNode, brand: BrandConfig):
             TITLE_WIDTH,
             TITLE_HEIGHT,
             node.heading,
-            font_size=FONT_HEADING,
+            font_size=_heading_size(node.heading),
             bold=True,
             color=text_color,
             font_name=brand.header_font,
@@ -850,7 +936,7 @@ def _render_image_text(slide, node: SlideNode, brand: BrandConfig):
                 Inches(MARGIN_LEFT),
                 Inches(CONTENT_TOP),
                 Inches(CONTENT_WIDTH / 2 - COLUMN_GAP / 2),
-                Inches(4.5),
+                Inches(BODY_HEIGHT),
             )
         except Exception:
             logger.warning("Image not found: %s, using placeholder", node.image)
@@ -876,7 +962,7 @@ def _render_image_text(slide, node: SlideNode, brand: BrandConfig):
             text_x,
             CONTENT_TOP,
             text_width,
-            4.5,
+            BODY_HEIGHT,
             node.bullets,
             font_size=FONT_BODY,
             color=text_color,
@@ -888,7 +974,7 @@ def _render_image_text(slide, node: SlideNode, brand: BrandConfig):
             text_x,
             CONTENT_TOP,
             text_width,
-            4.5,
+            BODY_HEIGHT,
             node.body,
             font_size=FONT_BODY,
             color=text_color,
@@ -995,7 +1081,7 @@ def _render_freeform(slide, node: SlideNode, brand: BrandConfig):
             TITLE_WIDTH,
             TITLE_HEIGHT,
             node.heading,
-            font_size=FONT_HEADING,
+            font_size=_heading_size(node.heading),
             bold=True,
             color=text_color,
             font_name=brand.header_font,
@@ -1009,7 +1095,7 @@ def _render_freeform(slide, node: SlideNode, brand: BrandConfig):
             MARGIN_LEFT,
             CONTENT_TOP,
             CONTENT_WIDTH,
-            4.5,
+            BODY_HEIGHT,
             node.bullets,
             font_size=FONT_BODY,
             color=text_color,
@@ -1021,7 +1107,7 @@ def _render_freeform(slide, node: SlideNode, brand: BrandConfig):
             MARGIN_LEFT,
             CONTENT_TOP,
             CONTENT_WIDTH,
-            4.5,
+            BODY_HEIGHT,
             node.body,
             font_size=FONT_BODY,
             color=text_color,
@@ -1052,14 +1138,17 @@ def _render_source_line(slide, node: SlideNode, brand: BrandConfig):
 
 
 def _render_exhibit_label(slide, node: SlideNode, brand: BrandConfig):
-    """Render the exhibit label above the body content."""
+    """Render the exhibit label between the separator and body content."""
     if not node.exhibit_label:
         return
     muted = _muted_color_for_bg(node.background, brand)
+    # Position below the separator line (TITLE_TOP + TITLE_HEIGHT + 0.05 + 0.03)
+    # and above the body content area (CONTENT_TOP), giving a clean exhibit caption zone.
+    label_top = TITLE_TOP + TITLE_HEIGHT + 0.12
     _add_textbox(
         slide,
         MARGIN_LEFT,
-        CONTENT_TOP - 0.3,
+        label_top,
         CONTENT_WIDTH,
         0.25,
         node.exhibit_label,
@@ -1124,7 +1213,7 @@ def _render_exec_summary(slide, node: SlideNode, brand: BrandConfig):
             TITLE_WIDTH,
             TITLE_HEIGHT,
             node.heading,
-            font_size=FONT_HEADING,
+            font_size=_heading_size(node.heading),
             bold=True,
             color=text_color,
             font_name=brand.header_font,
@@ -1132,19 +1221,26 @@ def _render_exec_summary(slide, node: SlideNode, brand: BrandConfig):
 
     _render_content_separator(slide, brand)
 
-    # Executive summary bullets (key messages)
+    # Executive summary bullets — spaced so each key message is visually distinct.
+    # Each bullet gets its own paragraph with 10pt breathing room above it (except
+    # the first).  Bold lead sentence + regular supporting text renders via
+    # _add_paragraph_runs.
     if node.bullets:
-        _add_bullet_list(
-            slide,
-            MARGIN_LEFT,
-            CONTENT_TOP,
-            CONTENT_WIDTH,
-            4.5,
-            node.bullets,
-            font_size=FONT_BODY,
-            color=text_color,
-            font_name=brand.body_font,
+        txBox = slide.shapes.add_textbox(
+            Inches(MARGIN_LEFT),
+            Inches(CONTENT_TOP),
+            Inches(CONTENT_WIDTH),
+            Inches(BODY_HEIGHT),
         )
+        tf = txBox.text_frame
+        tf.word_wrap = True
+        for i, bullet in enumerate(node.bullets):
+            p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+            if i > 0:
+                p.space_before = Pt(10)
+            _add_paragraph_runs(
+                p, bullet.text, FONT_BODY, color=text_color, font_name=brand.body_font
+            )
 
 
 def _render_next_steps(slide, node: SlideNode, brand: BrandConfig):
@@ -1160,7 +1256,7 @@ def _render_next_steps(slide, node: SlideNode, brand: BrandConfig):
             TITLE_WIDTH,
             TITLE_HEIGHT,
             node.heading,
-            font_size=FONT_HEADING,
+            font_size=_heading_size(node.heading),
             bold=True,
             color=text_color,
             font_name=brand.header_font,
@@ -1176,7 +1272,7 @@ def _render_next_steps(slide, node: SlideNode, brand: BrandConfig):
                 MARGIN_LEFT,
                 CONTENT_TOP,
                 CONTENT_WIDTH,
-                4.5,
+                BODY_HEIGHT,
                 node.bullets,
                 font_size=FONT_BODY,
                 color=text_color,
@@ -1189,7 +1285,7 @@ def _render_next_steps(slide, node: SlideNode, brand: BrandConfig):
     row_count = len(node.next_steps) + 1  # +1 for header
     col_count = 3
     table_top = CONTENT_TOP + 0.2
-    table_height = min(row_count * 0.6, 4.5)
+    table_height = min(row_count * 0.6, 4.0)  # cap at 4.0" to clear footnote zone
 
     table_shape = slide.shapes.add_table(
         row_count,

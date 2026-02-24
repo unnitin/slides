@@ -62,7 +62,8 @@ the slide's key takeaway. NEVER use topic labels.
 - RIGHT: "Pipeline uptime improved to 94% as medallion architecture scales"
 
 Rules:
-- Maximum 2 lines long
+- **Hard limit: ≤ 90 characters** (fits 2 lines at 20pt; count before writing)
+- One claim only — never join two claims with a semicolon or "and"
 - Specific and quantified where possible (include numbers)
 - Assertive, not hedging ("is" not "may be" or "appears to")
 - The body of the slide must directly PROVE the title claim (vertical logic)
@@ -127,12 +128,17 @@ If units or time period are unknown, omit them — never leave a placeholder.
 ### 6. Executive Summary Slide
 
 Use `@type: exec_summary` for the exec summary. Content should be 3-5 bullet
-points where each bullet is a **bolded key message** followed by supporting detail:
+points where each bullet is a **bolded governing thought** (≤12 words) followed
+by ONE supporting sentence (≤20 words). Total bullet: ≤32 words.
 
 ```
-- **Revenue grew 15% YoY driven by Southeast expansion.** The region added $45M
-  in new contracts, offsetting the 3% decline in the Midwest. (See Exhibit 4, p.8)
+- **Revenue grew 15% YoY driven by Southeast expansion.** Region added $45M;
+  no single client exceeds 8% of ARR. (See Exhibit 4, p.8)
 ```
+
+Use `**bold**` ONLY for the complete lead sentence on exec_summary bullets or
+for a key 1–4 word metric inline (e.g., `**$2.1M**`, `**40% YoY**`). Do NOT
+bold entire paragraphs or multi-sentence spans on any other slide type.
 
 ### 7. Next Steps Slide
 
@@ -152,7 +158,8 @@ Use `@type: next_steps` with `@action:` directives:
    Never compress two distinct claims onto one slide to hit a slide count target.
 4. **Use stat_callout for big numbers** — big numbers deserve big treatment
 5. **Section dividers for transitions** — each section has a governing thought
-6. **Keep bullets concise** — max 15 words per bullet, parallel grammatical form
+6. **Keep bullets concise** — max 12 words per bullet on all slides except exec_summary;
+   lead with the key metric or insight; drop filler verbs ("This shows…", "We found…")
 7. **Max 5-6 items per slide** — split if more
 8. **Speaker notes are valuable** — add context the presenter needs
 9. **Background variety** — use dark for emphasis slides (title, stats, closing)
