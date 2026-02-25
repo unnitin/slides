@@ -48,7 +48,7 @@ CONTENT_HEIGHT = 7.5 - MARGIN_TOP - MARGIN_BOTTOM  # 6.3
 CONTENT_TOP = MARGIN_TOP + 1.3  # 1.9 — below title (1.6) + separator + exhibit label
 
 # Source / footnote zone at bottom of slide
-SOURCE_FONT = 9
+SOURCE_FONT = 8  # consulting source/footnote lines are 7–8pt
 SOURCE_TOP = 7.5 - MARGIN_BOTTOM - 0.4  # ~6.5
 SOURCE_HEIGHT = 0.3
 PAGE_NUM_WIDTH = 0.5
@@ -61,15 +61,15 @@ TITLE_HEIGHT = 0.85  # fits a 2-line 20pt action title with minimal dead space b
 # Body content zone — starts after title + separator gap
 BODY_HEIGHT = 4.0  # available height before footnotes/source zone
 
-# Font sizes (points)
-FONT_TITLE = 36
-FONT_SUBTITLE = 20
-FONT_HEADING = 20  # 20pt fits a 2-line action title in a 1.0" box with Arial Black
-FONT_BODY = 13  # reduced from 14 so exec-summary bullets have more room
-FONT_CAPTION = 11
-FONT_STAT_VALUE = 44
-FONT_STAT_LABEL = 16
-FONT_STAT_DESC = 12
+# Font sizes (points) — calibrated against Bain/BCG consulting decks
+FONT_TITLE = 32  # cover/section titles: 28–36pt in consulting
+FONT_SUBTITLE = 18  # subtitle / governing-thought on title and section slides
+FONT_HEADING = 20  # action title on content slides: 18–22pt
+FONT_BODY = 11  # consulting body text is consistently 9–11pt
+FONT_CAPTION = 9  # eyebrow labels, exhibit captions: 8–10pt
+FONT_STAT_VALUE = 44  # inline stat callouts: 36–48pt
+FONT_STAT_LABEL = 13  # stat label (bold, below value): clearly subordinate
+FONT_STAT_DESC = 10  # stat descriptor: 9–10pt, never competes with value
 
 # Spacing
 ELEMENT_GAP = 0.3
@@ -98,14 +98,14 @@ def _text_color_for_bg(bg: BackgroundType, brand: BrandConfig) -> RGBColor:
     """Return appropriate text color for a background type."""
     if bg in (BackgroundType.DARK, BackgroundType.GRADIENT):
         return RGBColor(0xFF, 0xFF, 0xFF)
-    return resolve_color("black", brand)
+    return RGBColor(0x1A, 0x1A, 0x1A)  # near-black; consulting decks avoid pure #000
 
 
 def _muted_color_for_bg(bg: BackgroundType, brand: BrandConfig) -> RGBColor:
     """Return a muted/secondary text color for a background type."""
     if bg in (BackgroundType.DARK, BackgroundType.GRADIENT):
         return RGBColor(0xCC, 0xCC, 0xCC)
-    return RGBColor(0x66, 0x66, 0x66)
+    return RGBColor(0x76, 0x76, 0x76)  # #767676 — source notes / axis labels
 
 
 # ── Markdown Run Renderer ─────────────────────────────────────────
@@ -293,8 +293,9 @@ def _add_bullet_list(
 def _render_content_separator(slide, brand: BrandConfig):
     """Render thin horizontal rule below slide title area.
 
-    Draws a 0.03" tall rectangle at TITLE_TOP + TITLE_HEIGHT + 0.05"
-    using the brand secondary color. Applied to all content slides.
+    Draws a hairline (~0.5pt / 0.03") at TITLE_TOP + TITLE_HEIGHT + 0.05".
+    Uses a fixed light gray (#CCCCCC) matching the consulting standard —
+    never a brand color, which would make the rule visually compete with content.
     """
     sep = slide.shapes.add_shape(
         1,  # MSO_SHAPE.RECTANGLE
@@ -304,7 +305,7 @@ def _render_content_separator(slide, brand: BrandConfig):
         Inches(0.03),
     )
     sep.fill.solid()
-    sep.fill.fore_color.rgb = resolve_color("secondary", brand)
+    sep.fill.fore_color.rgb = RGBColor(0xCC, 0xCC, 0xCC)  # fixed hairline gray
     sep.line.fill.background()
 
 
@@ -363,6 +364,25 @@ def _render_logo(
         )
     except Exception:
         logger.debug("Logo file not found or invalid: %s", brand.logo)
+
+
+def _render_footer_rule(slide, brand: BrandConfig):
+    """Render a hairline rule above the source/footnote zone.
+
+    Both Bain and BCG use a thin gray rule separating the content body from
+    the bottom metadata zone (source, footnotes, page number).  Placed at
+    SOURCE_TOP - 0.1" so it sits just above the source text.
+    """
+    rule = slide.shapes.add_shape(
+        1,  # MSO_SHAPE.RECTANGLE
+        Inches(MARGIN_LEFT),
+        Inches(SOURCE_TOP - 0.1),
+        Inches(CONTENT_WIDTH),
+        Inches(0.02),
+    )
+    rule.fill.solid()
+    rule.fill.fore_color.rgb = RGBColor(0xDD, 0xDD, 0xDD)
+    rule.line.fill.background()
 
 
 def _render_confidentiality_label(slide, meta: PresentationMeta, brand: BrandConfig):
@@ -424,7 +444,7 @@ def _render_title(slide, node: SlideNode, brand: BrandConfig):
             CONTENT_WIDTH,
             1.5,
             node.heading,
-            font_size=FONT_TITLE + 8,
+            font_size=FONT_TITLE,  # 32pt; cover titles are 28–36pt in consulting
             bold=True,
             color=text_color,
             alignment=PP_ALIGN.CENTER,
@@ -1433,7 +1453,8 @@ def render(
         renderer_fn = _RENDERERS.get(node.slide_type, _render_freeform)
         renderer_fn(slide, node, brand)
 
-        # Consulting metadata (exhibit label, footnotes, source, page number)
+        # Footer hairline rule + consulting metadata
+        _render_footer_rule(slide, brand)
         _render_exhibit_label(slide, node, brand)
         _render_footnotes(slide, node, brand)
         _render_source_line(slide, node, brand)

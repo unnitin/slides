@@ -135,7 +135,7 @@ class TestTextColorForBg:
 
     def test_light_bg_black_text(self, brand):
         c = _text_color_for_bg(BackgroundType.LIGHT, brand)
-        assert c == RGBColor(0x00, 0x00, 0x00)
+        assert c == RGBColor(0x1A, 0x1A, 0x1A)  # near-black per consulting standard
 
 
 class TestMutedColorForBg:
@@ -145,7 +145,7 @@ class TestMutedColorForBg:
 
     def test_light_bg_muted(self, brand):
         c = _muted_color_for_bg(BackgroundType.LIGHT, brand)
-        assert c == RGBColor(0x66, 0x66, 0x66)
+        assert c == RGBColor(0x76, 0x76, 0x76)  # #767676 per consulting standard
 
 
 # ── Background Application ───────────────────────────────────────
