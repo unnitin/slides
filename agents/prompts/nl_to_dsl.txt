@@ -164,6 +164,11 @@ Use `@type: next_steps` with `@action:` directives:
 8. **Speaker notes are valuable** — add context the presenter needs
 9. **Background variety** — use dark for emphasis slides (title, stats, closing)
 10. **Source every data point** — @source on all data slides, no exceptions
+11. **Use icon rows for bullet slides** — whenever you use `bullet_points`, add
+    `@layout: icon_rows` and prefix each bullet with `- @icon: <keyword> | <text>`
+    where keyword is a single descriptive word (e.g. growth, risk, team, cost, speed).
+    This renders bullets with visual accent circles. Only skip icon_rows if bullets
+    have sub-bullets (indented levels).
 
 ### Slide Type Selection — Match Content to Type
 

@@ -278,6 +278,7 @@ def _add_bullet_list(
             p = tf.paragraphs[0]
         else:
             p = tf.add_paragraph()
+            p.space_before = Pt(8)  # breathing room between bullets
 
         bullet_font_size = font_size - (bullet.level * 2)
         p.level = bullet.level
@@ -451,14 +452,15 @@ def _render_title(slide, node: SlideNode, brand: BrandConfig):
 def _render_section_divider(slide, node: SlideNode, brand: BrandConfig):
     """Render a section divider slide."""
     text_color = _text_color_for_bg(node.background, brand)
+    muted = _muted_color_for_bg(node.background, brand)
 
     if node.heading:
         _add_textbox(
             slide,
             MARGIN_LEFT,
-            2.5,
+            2.2,
             CONTENT_WIDTH,
-            1.5,
+            1.3,
             node.heading,
             font_size=FONT_TITLE,
             bold=True,
@@ -469,16 +471,32 @@ def _render_section_divider(slide, node: SlideNode, brand: BrandConfig):
 
     # Accent strip
     accent = resolve_color("accent", brand)
+    strip_y = 3.6 if node.subheading else 4.0
     shape = slide.shapes.add_shape(
         1,  # MSO_SHAPE.RECTANGLE
         Inches(MARGIN_LEFT + 3.0),
-        Inches(4.2),
+        Inches(strip_y),
         Inches(CONTENT_WIDTH - 6.0),
         Inches(0.06),
     )
     shape.fill.solid()
     shape.fill.fore_color.rgb = accent
     shape.line.fill.background()
+
+    # Governing thought / subtitle — shown below the accent strip
+    if node.subheading:
+        _add_textbox(
+            slide,
+            MARGIN_LEFT + 1.5,
+            strip_y + 0.2,
+            CONTENT_WIDTH - 3.0,
+            0.7,
+            node.subheading,
+            font_size=FONT_SUBTITLE,
+            color=muted,
+            alignment=PP_ALIGN.CENTER,
+            font_name=brand.body_font,
+        )
 
 
 def _render_stat_callout(slide, node: SlideNode, brand: BrandConfig):
@@ -605,11 +623,14 @@ def _render_bullet_points(slide, node: SlideNode, brand: BrandConfig):
 
 
 def _render_icon_rows(slide, node: SlideNode, brand: BrandConfig):
-    """Render bullet points as icon rows layout."""
+    """Render bullet points as icon rows layout with accent circles."""
     text_color = _text_color_for_bg(node.background, brand)
     accent = resolve_color("accent", brand)
-    row_height = 0.7
-    start_top = CONTENT_TOP + 0.2
+    n = len(node.bullets)
+    # Spread rows evenly like exec_summary; cap at 1.0" so sparse slides
+    # don't look floaty.
+    row_height = min(BODY_HEIGHT / max(n, 1), 1.0)
+    start_top = CONTENT_TOP + 0.1
 
     for i, bullet in enumerate(node.bullets):
         y = start_top + i * row_height
@@ -618,33 +639,33 @@ def _render_icon_rows(slide, node: SlideNode, brand: BrandConfig):
         shape = slide.shapes.add_shape(
             9,  # MSO_SHAPE.OVAL
             Inches(MARGIN_LEFT),
-            Inches(y),
-            Inches(0.45),
-            Inches(0.45),
+            Inches(y + 0.04),
+            Inches(0.42),
+            Inches(0.42),
         )
         shape.fill.solid()
         shape.fill.fore_color.rgb = accent
         shape.line.fill.background()
 
-        # Icon label inside circle
-        if bullet.icon:
-            tf = shape.text_frame
-            tf.paragraphs[0].text = bullet.icon[0].upper()
-            tf.paragraphs[0].font.size = Pt(14)
-            tf.paragraphs[0].font.bold = True
-            tf.paragraphs[0].font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
-            tf.paragraphs[0].alignment = PP_ALIGN.CENTER
-            tf.word_wrap = False
+        # Icon label inside circle — first char of icon name or bullet number
+        tf = shape.text_frame
+        label = bullet.icon[0].upper() if bullet.icon else str(i + 1)
+        tf.paragraphs[0].text = label
+        tf.paragraphs[0].font.size = Pt(13)
+        tf.paragraphs[0].font.bold = True
+        tf.paragraphs[0].font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        tf.paragraphs[0].alignment = PP_ALIGN.CENTER
+        tf.word_wrap = False
 
-        # Text
+        # Text — height sized to slot so wrapping text isn't clipped
         _add_textbox(
             slide,
-            MARGIN_LEFT + 0.7,
-            y + 0.05,
-            CONTENT_WIDTH - 0.7,
-            0.4,
+            MARGIN_LEFT + 0.60,
+            y,
+            CONTENT_WIDTH - 0.60,
+            max(row_height - 0.08, 0.45),
             bullet.text,
-            font_size=FONT_BODY,
+            font_size=FONT_BODY + 1,
             color=text_color,
             font_name=brand.body_font,
         )
@@ -1203,6 +1224,7 @@ def _render_page_number(slide, page_num: int, node: SlideNode, brand: BrandConfi
 def _render_exec_summary(slide, node: SlideNode, brand: BrandConfig):
     """Render an executive summary slide with key messages."""
     text_color = _text_color_for_bg(node.background, brand)
+    accent = resolve_color("accent", brand)
 
     # Heading
     if node.heading:
@@ -1221,25 +1243,47 @@ def _render_exec_summary(slide, node: SlideNode, brand: BrandConfig):
 
     _render_content_separator(slide, brand)
 
-    # Executive summary bullets — spaced so each key message is visually distinct.
-    # Each bullet gets its own paragraph with 10pt breathing room above it (except
-    # the first).  Bold lead sentence + regular supporting text renders via
-    # _add_paragraph_runs.
+    # Executive summary bullets — numbered accent circles + evenly distributed
+    # so bullets fill the full content height rather than clustering at the top.
     if node.bullets:
-        txBox = slide.shapes.add_textbox(
-            Inches(MARGIN_LEFT),
-            Inches(CONTENT_TOP),
-            Inches(CONTENT_WIDTH),
-            Inches(BODY_HEIGHT),
-        )
-        tf = txBox.text_frame
-        tf.word_wrap = True
+        n = len(node.bullets)
+        # Spread bullets evenly across BODY_HEIGHT; cap slot at 1.1" so sparse
+        # decks (2-3 bullets) don't leave bullets too far apart.
+        slot = min(BODY_HEIGHT / n, 1.1)
+
         for i, bullet in enumerate(node.bullets):
-            p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-            if i > 0:
-                p.space_before = Pt(10)
+            y = CONTENT_TOP + i * slot
+
+            # Numbered accent circle
+            circle = slide.shapes.add_shape(
+                9,  # MSO_SHAPE.OVAL
+                Inches(MARGIN_LEFT),
+                Inches(y + 0.05),
+                Inches(0.40),
+                Inches(0.40),
+            )
+            circle.fill.solid()
+            circle.fill.fore_color.rgb = accent
+            circle.line.fill.background()
+            ctf = circle.text_frame
+            ctf.paragraphs[0].text = str(i + 1)
+            ctf.paragraphs[0].font.size = Pt(11)
+            ctf.paragraphs[0].font.bold = True
+            ctf.paragraphs[0].font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+            ctf.paragraphs[0].alignment = PP_ALIGN.CENTER
+
+            # Bullet text — indented past the circle, sized to fit the slot
+            txBox = slide.shapes.add_textbox(
+                Inches(MARGIN_LEFT + 0.58),
+                Inches(y),
+                Inches(CONTENT_WIDTH - 0.58),
+                Inches(max(slot - 0.08, 0.5)),
+            )
+            tf = txBox.text_frame
+            tf.word_wrap = True
+            p = tf.paragraphs[0]
             _add_paragraph_runs(
-                p, bullet.text, FONT_BODY, color=text_color, font_name=brand.body_font
+                p, bullet.text, FONT_BODY + 1, color=text_color, font_name=brand.body_font
             )
 
 
